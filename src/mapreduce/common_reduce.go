@@ -72,6 +72,7 @@ func doReduce(
 			}
 			if t, ok := kvMap[kv.Key]; ok {
 				t = append(t, kv.Value)
+				kvMap[kv.Key] = t
 			} else {
 				t = []string{kv.Value}
 				kvMap[kv.Key] = t

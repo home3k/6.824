@@ -19,9 +19,11 @@ import (
 func mapF(filename string, contents string) []mapreduce.KeyValue {
 	// TODO: you have to write this function
 	res:=[]mapreduce.KeyValue {}
-	letters:=strings.FieldsFunc(contents, unicode.IsLetter)
+	letters:=strings.FieldsFunc(contents, func(c rune) bool {
+		return !unicode.IsLetter(c)
+	})
 	for _, letter:=range letters {
-		kv := KeyValue{letter, "0"}
+		kv := mapreduce.KeyValue{letter, "1"}
 		res = append(res, kv)
 	}
 	return res
@@ -43,7 +45,7 @@ func reduceF(key string, values []string) string {
 		}
 		count+=c
 	}
-	return string(count)
+	return strconv.Itoa(count)
 }
 
 // Can be run in 3 ways:
