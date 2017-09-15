@@ -33,38 +33,40 @@ func schedule(jobName string, mapFiles []string, nReduce int, phase jobPhase, re
 	// Remember that workers may fail, and that any given worker may finish
 	// multiple tasks.
 	//
-	var countCond *sync.Cond
-	finished:=0
+
+	var wg sync.WaitGroup
+
 	for i := 0; i < ntasks; i++ {
+		fmt.Printf("Begin the task %d \n", i)
 		worker := <-registerChan
-		args := new(DoTaskArgs)
-		args.JobName = jobName
-		args.NumOtherPhase = n_other
-		args.TaskNumber = i
+
+		args := DoTaskArgs{
+			JobName:       jobName,
+			NumOtherPhase: n_other,
+			TaskNumber:    i,
+			Phase:         phase}
 		if phase == mapPhase {
 			args.File = mapFiles[i]
 		}
-		args.Phase = phase
-		go doTask(worker, args, registerChan, &finished, ntasks, countCond)
+
+		wg.Add(1)
+		go func(worker string, args DoTaskArgs, index int) {
+			ok := call(worker, "Worker.DoTask", &args, new(struct{}))
+			if ok == false {
+				fmt.Print("Schedule: rpc error\n")
+			} else {
+				wg.Done()
+				registerChan <- worker
+				fmt.Printf("End the task %d \n", index)
+			}
+		}(worker, args, i)
 	}
 
-	if finished<ntasks {
-		countCond.Wait()
-	}
+	fmt.Print("all finish?\n")
 
+	wg.Wait()
+
+	_ = <-registerChan
 
 	fmt.Printf("Schedule: %v phase done\n", phase)
-}
-
-func doTask(worker string, args *DoTaskArgs, registerChan chan string, finished *int, ntasks int, countCond *sync.Cond)  {
-	ok := call(worker, "Worker.DoTask", args, new(struct{}))
-	if ok == false {
-		fmt.Print("Schedule: rpc error\n")
-	} else {
-		*finished+=1
-		registerChan <- worker
-		if *finished == ntasks {
-			countCond.Broadcast()
-		}
-	}
 }
