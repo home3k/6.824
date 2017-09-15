@@ -36,10 +36,19 @@ func schedule(jobName string, mapFiles []string, nReduce int, phase jobPhase, re
 
 	var wg sync.WaitGroup
 
+	var freeWorkers = make(chan string, 1000)
+
+	done := false
+
+	go func() {
+		for !done {
+			freeWorkers <- <-registerChan
+		}
+	}()
+
 	for i := 0; i < ntasks; i++ {
 		fmt.Printf("Begin the task %d \n", i)
-		worker := <-registerChan
-
+		wg.Add(1)
 		args := DoTaskArgs{
 			JobName:       jobName,
 			NumOtherPhase: n_other,
@@ -49,24 +58,27 @@ func schedule(jobName string, mapFiles []string, nReduce int, phase jobPhase, re
 			args.File = mapFiles[i]
 		}
 
-		wg.Add(1)
-		go func(worker string, args DoTaskArgs, index int) {
-			ok := call(worker, "Worker.DoTask", &args, new(struct{}))
-			if ok == false {
-				fmt.Print("Schedule: rpc error\n")
-			} else {
-				wg.Done()
-				registerChan <- worker
-				fmt.Printf("End the task %d \n", index)
+		go func(args DoTaskArgs, index *int) {
+			for {
+				worker := <-freeWorkers
+				ok := call(worker, "Worker.DoTask", &args, new(struct{}))
+				if ok == false {
+					fmt.Print("Schedule: rpc error\n")
+				} else {
+					fmt.Printf("End the task %d \n", index)
+					freeWorkers <- worker
+					wg.Done()
+					break
+				}
 			}
-		}(worker, args, i)
+		}(args, &i)
 	}
 
 	fmt.Print("all finish?\n")
 
 	wg.Wait()
 
-	_ = <-registerChan
+	done = true
 
 	fmt.Printf("Schedule: %v phase done\n", phase)
 }
