@@ -44,7 +44,7 @@ func doReduce(
 	// JSON -- it is just the marshalling format we chose to use. Your
 	// output code will look something like this:
 	//
-	// enc := json.NewEncoder(file)
+	// enc := json.NewEncoder(file)L
 	// for key := ... {
 	// 	enc.Encode(KeyValue{key, reduceF(...)})
 	// }
