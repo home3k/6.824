@@ -28,7 +28,7 @@ Core idea: replication
   If one replica fails, others can continue
 
 Example: fault-tolerant MapReduce master
-  lab 1 workers are already fault-tolerant, but not master
+  lab 1  workers are already fault-tolerant, but not master
     master is a "single point of failure"
   can we have two masters, in case one fails?
   [diagram: M1, M2, workers]
