@@ -18,12 +18,21 @@ package raft
 //
 
 import "sync"
-import "labrpc"
+import (
+	"labrpc"
+	"math"
+	"math/rand"
+	"time"
+)
 
 // import "bytes"
 // import "encoding/gob"
 
-
+const (
+	Leader    = 1
+	Candidate = 2
+	Follower  = 3
+)
 
 //
 // as each Raft peer becomes aware that successive log entries are
@@ -49,7 +58,19 @@ type Raft struct {
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
+	commitIndex int
+	lastApplied int
 
+	nextIndex  []int
+	matchIndex []int
+
+	// persisted state
+	currentTerm int
+	votedFor    int
+	logs        []LogEntry
+
+	// role
+	role int
 }
 
 // return currentTerm and whether this server
@@ -59,6 +80,12 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here (2A).
+	term = rf.currentTerm
+	if rf.role == Leader {
+		isleader = true
+	} else {
+		isleader = false
+	}
 	return term, isleader
 }
 
@@ -93,15 +120,16 @@ func (rf *Raft) readPersist(data []byte) {
 	}
 }
 
-
-
-
 //
 // example RequestVote RPC arguments structure.
 // field names must start with capital letters!
 //
 type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
+	Term         int
+	CandidateId  int
+	LastLogIndex int
+	LastLogTerm  int
 }
 
 //
@@ -110,13 +138,39 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here (2A).
+	Term        int
+	VoteGranted bool
+}
+
+type AppendEntriesArgs struct {
+	Term         int
+	LeaderId     int
+	PrevLogIndex int
+	PrevLogTerm  int
+	Entries      []LogEntry
+	LeaderCommit int
+}
+
+type AppendEntriesReply struct {
+	Term    int
+	Success bool
+}
+
+type LogEntry struct {
+	Term    int
+	Content interface{}
 }
 
 //
 // example RequestVote RPC handler.
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
-	// Your code here (2A, 2B).
+
+}
+
+// AppendEntries RPC handler
+func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+
 }
 
 //
@@ -153,6 +207,34 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	return ok
 }
 
+func (rf *Raft) sendRequestVotes(args *RequestVoteArgs, reply *RequestVoteReply) bool {
+	for server := range rf.peers {
+		if server == rf.me {
+			continue
+		}
+		ok := rf.sendRequestVote(server, args, reply)
+		if !ok {
+			// todo
+		}
+	}
+}
+
+func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	return ok
+}
+
+func (rf *Raft) sendAllAppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
+	for server := range rf.peers {
+		if server == rf.me {
+			continue
+		}
+		ok := rf.sendAppendEntries(server, args, reply)
+		if !ok {
+			// todo
+		}
+	}
+}
 
 //
 // the service using Raft (e.g. a k/v server) wants to start
@@ -173,7 +255,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := true
 
 	// Your code here (2B).
-
 
 	return index, term, isLeader
 }
@@ -207,10 +288,45 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (2A, 2B, 2C).
-
+	rf.role = Follower
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
-
 	return rf
+}
+
+func leaderRegularAppend(rf *Raft) {
+	for {
+		// timer
+		time.Sleep(time.Duration(appendLogTimeout()) * time.Millisecond)
+		rf.mu.Lock()
+		if rf.role == Leader {
+			args, reply := new(AppendEntriesArgs), new(AppendEntriesReply)
+			args.Term = rf.currentTerm
+			args.LeaderId = rf.me
+			args.LeaderCommit = rf.commitIndex
+			args.PrevLogIndex = len(rf.logs) - 1
+			args.PrevLogTerm = rf.logs[args.PrevLogIndex].Term
+			rf.sendAllAppendEntries(args, reply)
+		}
+		rf.mu.Unlock()
+
+	}
+}
+
+func doElection(rf *Raft) {
+	time.Sleep(time.Duration(appendLogTimeout()) * time.Millisecond)
+	rf.mu.Lock()
+
+	defer rf.mu.Unlock()
+}
+
+func appendLogTimeout() (timeout int) {
+	timeout = 100
+	return
+}
+
+func electionTimeout() (timeout int) {
+	timeout = 400 + rand.Intn(400)
+	return timeout
 }
