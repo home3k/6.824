@@ -480,7 +480,6 @@ func adAppendEntries(rf *Raft, command interface{}) {
 			fmt.Printf("server %d send command append to server %d\n", rf.me, index)
 			ok := rf.sendAppendEntries(index, args, reply)
 			if ok {
-				rf.nextIndex[server] =
 			}
 		}(server)
 	}
