@@ -198,9 +198,14 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		return
 	}
 	if rf.votedFor == 0 || rf.votedFor == args.CandidateId {
-		// todo  up-to-date log. check.
-		reply.VoteGranted = true
-		rf.votedFor = args.CandidateId
+		// up-to-date log. check.
+		lastIndex, lastTerm := rf.getLastEntry()
+		if args.LastLogTerm < lastTerm || args.LastLogIndex < lastIndex {
+			reply.VoteGranted = false
+		} else {
+			reply.VoteGranted = true
+			rf.votedFor = args.CandidateId
+		}
 	} else {
 		reply.VoteGranted = false
 	}
@@ -232,8 +237,26 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.Success = false
 		return
 	}
-	// todo conflict & append log
+	if rf.logs[args.PrevLogIndex].Term != args.PrevLogTerm {
+		// conflict, truncate the slice.
+		rf.logs = rf.logs[0:args.PrevLogIndex]
+		reply.Success = false
+		return
+	}
 
+	// append log
+
+	for _, entry := range args.Entries {
+		rf.logs = append(rf.logs, entry)
+	}
+
+	if args.LeaderCommit > rf.commitIndex {
+		rf.commitIndex = args.LeaderCommit
+		if len(rf.logs) -1 < args.LeaderCommit {
+			rf.commitIndex = len(rf.logs) -1
+		}
+	}
+	reply.Success = true
 }
 
 //
@@ -380,6 +403,10 @@ func doElection(rf *Raft) {
 	if ok {
 		rf.mu.Lock()
 		rf.role = Leader
+		for server:=range rf.peers {
+			rf.nextIndex[server] = len(rf.logs)
+			rf.matchIndex[server] = 0
+		}
 		rf.mu.Unlock()
 		doHeartbeat(rf)
 	}
@@ -433,6 +460,29 @@ func election(rf *Raft) bool {
 	} else {
 		fmt.Printf("server %d end election NOT granted!!\n", rf.me)
 		return false
+	}
+}
+
+func adAppendEntries(rf *Raft, command interface{}) {
+	args, reply := new(AppendEntriesArgs), new(AppendEntriesReply)
+	args.Term = rf.currentTerm
+	args.LeaderId = rf.me
+	args.LeaderCommit = rf.commitIndex
+	args.PrevLogIndex, args.PrevLogTerm = rf.getLastEntry()
+	args.Entries = []LogEntry{{
+		rf.currentTerm, command,
+	}}
+	for server := range rf.peers {
+		if server == rf.me {
+			continue
+		}
+		go func(index int) {
+			fmt.Printf("server %d send command append to server %d\n", rf.me, index)
+			ok := rf.sendAppendEntries(index, args, reply)
+			if ok {
+				rf.nextIndex[server] =
+			}
+		}(server)
 	}
 }
 
