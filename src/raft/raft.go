@@ -93,6 +93,11 @@ type Raft struct {
 
 	// apply channel.
 	applyCh chan ApplyMsg
+
+	//temp for vote.
+	voteGranted int
+	voteNotGranted int
+
 }
 
 // return currentTerm and whether this server
@@ -188,7 +193,7 @@ type LogEntry struct {
 // example RequestVote RPC handler.
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
-	fmt.Printf("server %d, receive vote from %d & votedfor is %d\n", rf.me, args.CandidateId, rf.votedFor)
+	fmt.Printf("server %d, recv vote from %d & its votedfor is %d\n", rf.me, args.CandidateId, rf.votedFor)
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	if args.Term < rf.currentTerm {
@@ -215,11 +220,11 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // AppendEntries RPC handler
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 
-	//fmt.Printf("server %d recv append entries\n", rf.me)
+	fmt.Printf("server %d[%d] recv append entries from %d with term %d \n", rf.me, rf.currentTerm, args.LeaderId, args.Term)
 
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	if args.Term > rf.currentTerm {
+	if args.Term >= rf.currentTerm {
 		rf.leaderId = args.LeaderId
 		// ok, recv from leader, so convert to follower.
 		rf.initFollowerState(args.Term)
@@ -236,7 +241,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.Success = false
 		return
 	}
-	if args.PrevLogIndex>0 && rf.logs[args.PrevLogIndex-1].Term != args.PrevLogTerm {
+	if args.PrevLogIndex > 0 && rf.logs[args.PrevLogIndex-1].Term != args.PrevLogTerm {
 		// conflict, truncate the slice.
 		rf.logs = rf.logs[0:args.PrevLogIndex]
 		reply.Success = false
@@ -339,6 +344,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		var msg = new(ApplyMsg)
 		msg.Index = rf.lastApplied
 		msg.Command = rf.logs[rf.lastApplied].Command
+		index = rf.lastApplied
 		rf.applyCh <- *msg
 	}
 
@@ -396,18 +402,14 @@ func (rf *Raft) run() {
 
 	for {
 		time.Sleep(time.Duration(heartbeatTimeout()) * time.Millisecond)
-		rf.mu.Lock()
 		if rf.heartbeatTimerStatus == start {
 			rf.heartbeatTimerStatus = timeout
-			rf.mu.Unlock()
 			continue
 		}
 		// timeout & reset timer
 		rf.heartbeatTimerStatus = timeout
-		rf.mu.Unlock()
 
-		rf.mu.Lock()
-		//fmt.Printf("server %d run timeout\n", rf.me)
+		fmt.Printf("server %d[%d] run timeout\n", rf.me, rf.currentTerm)
 		if rf.role == Follower || rf.role == Candidate {
 			// convert to candidate & to do election.
 			rf.role = Candidate
@@ -415,7 +417,6 @@ func (rf *Raft) run() {
 			go func() {
 				go rf.doElection()
 				time.Sleep(time.Duration(electionTimeout()) * time.Millisecond)
-				rf.mu.Lock()
 				if rf.electionTimerStatus == timeout {
 					// election timeout.
 					if rf.role == Candidate {
@@ -425,14 +426,12 @@ func (rf *Raft) run() {
 						go rf.doElection()
 					}
 				}
-				rf.mu.Unlock()
 
 			}()
 		} else {
 			// leader. send heartbeat rpc.
 			rf.doHeartbeat()
 		}
-		rf.mu.Unlock()
 
 	}
 }
@@ -442,7 +441,6 @@ func (rf *Raft) doElection() {
 	ok := rf.election()
 	if ok {
 		// ok election successful. reinitialized nextIndex & matchIndex
-		rf.mu.Lock()
 		rf.role = Leader
 		rf.nextIndex = make([]int, len(rf.peers))
 		rf.matchIndex = make([]int, len(rf.peers))
@@ -450,14 +448,12 @@ func (rf *Raft) doElection() {
 			rf.nextIndex[server] = len(rf.logs) + 1
 			rf.matchIndex[server] = 0
 		}
-		rf.mu.Unlock()
 		rf.doHeartbeat()
 	}
 }
 
 func (rf *Raft) election() bool {
 
-	rf.mu.Lock()
 	peers := rf.peers
 	me := rf.me
 	rf.currentTerm++
@@ -466,34 +462,27 @@ func (rf *Raft) election() bool {
 	args.Term = rf.currentTerm
 	args.CandidateId = rf.me
 	args.LastLogIndex, args.LastLogTerm = rf.getLastEntry()
-	rf.mu.Unlock()
 	count := 0
 	var wg sync.WaitGroup
-	//fmt.Printf("server %d start election\n", rf.me)
+	fmt.Printf("server %d start election\n", rf.me)
 	for server := range peers {
 		if server == me {
-			rf.mu.Lock()
 			// vote for self.
 			rf.votedFor = me
-			rf.mu.Unlock()
 			continue
 		}
 		wg.Add(1)
 		go func(index int) {
-			//fmt.Printf("server %d start election to server %d\n", rf.me, index)
+			fmt.Printf("server %d start election to server %d\n", rf.me, index)
 			ok := rf.sendRequestVote(index, args, reply)
 			if ok && reply.VoteGranted {
 				//fmt.Printf("server %d start election to server %d & granted!!\n", rf.me, index)
-				rf.mu.Lock()
 				count++
-				rf.mu.Unlock()
 			} else {
 				//fmt.Printf("server %d start election to server %d & NOT granted!!\n", rf.me, index)
-				rf.mu.Lock()
 				if reply.Term > rf.currentTerm {
 					rf.initFollowerState(reply.Term)
 				}
-				rf.mu.Unlock()
 			}
 			wg.Done()
 		}(server)
@@ -508,7 +497,7 @@ func (rf *Raft) election() bool {
 		fmt.Printf("server %d end election granted!!\n", rf.me)
 		return true
 	} else {
-		//fmt.Printf("server %d end election NOT granted!!\n", rf.me)
+		fmt.Printf("server %d end election NOT granted!!\n", rf.me)
 		return false
 	}
 }
@@ -620,12 +609,10 @@ func (rf *Raft) doCommitCheck() {
 // heartbeat.
 func (rf *Raft) doHeartbeat() {
 	args, reply := new(AppendEntriesArgs), new(AppendEntriesReply)
-	rf.mu.Lock()
 	args.Term = rf.currentTerm
 	args.LeaderId = rf.me
 	args.LeaderCommit = rf.commitIndex
 	args.PrevLogIndex, args.PrevLogTerm = rf.getLastEntry()
-	rf.mu.Unlock()
 	for server := range rf.peers {
 		if server == rf.me {
 			continue
@@ -634,13 +621,11 @@ func (rf *Raft) doHeartbeat() {
 			//fmt.Printf("server %d send append to server %d\n", rf.me, index)
 			ok := rf.sendAppendEntries(index, args, reply)
 			if !ok {
-				rf.mu.Lock()
 				if reply.Term > rf.currentTerm {
 					rf.currentTerm = reply.Term
 					rf.role = Follower
 					rf.votedFor = -1
 				}
-				rf.mu.Unlock()
 			}
 		}(server)
 	}
@@ -656,11 +641,24 @@ func (rf *Raft) getLastEntry() (index int, term int) {
 }
 
 func (rf *Raft) initFollowerState(term int) {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
 	rf.currentTerm = term
 	rf.role = Follower
 	rf.votedFor = voteForNone
+}
+
+func (rf *Raft) quorum() (finished bool) {
+	finished = false
+	radix:=len(rf.peers)/2+1
+	if rf.voteGranted >= radix {
+		rf.role = Leader
+		finished = true
+		return
+	}
+	if rf.voteNotGranted >= radix {
+		finished = true
+		return
+	}
+	return
 }
 
 func electionTimeout() (timeout int) {
