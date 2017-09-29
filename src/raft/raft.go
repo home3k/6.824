@@ -401,7 +401,7 @@ func (rf *Raft) run() {
 	rf.mu.Unlock()
 
 	for {
-		time.Sleep(time.Duration(heartbeatTimeout()) * time.Millisecond)
+		time.Sleep(time.Duration(electionTimeout()) * time.Millisecond)
 		if rf.heartbeatTimerStatus == start {
 			rf.heartbeatTimerStatus = timeout
 			continue
