@@ -25,7 +25,7 @@ products use PA.
 
 
 Every database system that supports transactions has to cope with
-deaadlocks. The problem and set of possible solution designs hasn't
+deadlocks. The problem and set of possible solution designs hasn't
 really changed since R*. If you poke around the web you'll find plenty
 of material about deadlocks in modern databases such as IBM DB2.
 
@@ -240,7 +240,7 @@ to PA.
 > requests and respond to the client?
 
 
-There are two common arrangments. One possibility is that a server acts
+There are two common arrangements. One possibility is that a server acts
 as the TC (transaction coordinator); it's particularly convenient for
 one of the servers participating in the transaction to also act as TC,
 since that saves a few messages. Another common setup is for the client

@@ -139,7 +139,7 @@ https://en.wikipedia.org/wiki/Non-blocking_algorithm.
 The reason that authors appeal to this concurrent-object theory is
 that they claim that Zookeeper provides a good coordination kernel
 that enables new primitives without changing the service. By
-pointing out that Zookeeper is an universal object in this
+pointing ou                                                                                                                                                                                                                                                                      t that Zookeeper is an universal object in this
 concurrent-object theory, they support this claim.
 
 Q: How does a client know when to leave a barrier (top of page 7)?
